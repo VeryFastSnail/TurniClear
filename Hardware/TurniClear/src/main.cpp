@@ -13,6 +13,32 @@ MPU6050 mpu;
 #define CANCELATION_ANGLE     10
 
 
+//===========Buttons routine declarations===============//
+
+unsigned long buttonTimer = 0;
+unsigned long longPressTime = 500;
+
+boolean buttonActive = false;
+boolean longPressActive = false;
+
+enum buttons {
+  left = LEFTLOAD,
+  right = RIGHTLOAD,
+  none
+};
+
+
+//===========Turn Signals routine declarations============//
+buttons ledBlinking = none;
+#define SHORTBLINKTIMES         3
+#define BLINKSAJUSTED           SHORTBLINKTIMES * 2
+int blinks = SHORTBLINKTIMES; // because it goes on an off so double the itterations
+bool shortBlinking = false;
+
+int leftButtonState = 0;
+int rightButtonState = 0;
+
+
 // Timers
 unsigned long timer = 0;
 float timeStep = 0.01;
@@ -25,24 +51,18 @@ bool isBlinking = false;
 bool blinkState = LOW;
 
 
-enum turns {
-  left = LEFTLOAD,
-  right = RIGHTLOAD,
-  none
-};
-
-turns ledBlinking = none;
-
-
 void cancelTurnSignals()
 {
+  shortBlinking = false;
   digitalWrite(ledBlinking, LOW);
   isBlinking = false;
   ledBlinking = none;
+  leftButtonState = HIGH;
+  rightButtonState = HIGH;
 }
 
 
-void activateTurnSignal(turns dir){
+void activateTurnSignal(buttons dir){
 
   if(!isBlinking) {
       mpu.calibrateGyro();
@@ -52,14 +72,6 @@ void activateTurnSignal(turns dir){
       cancelTurnSignals();
       delay(250);
   } 
-}
-
-void activateLeftSignal(){
-    activateTurnSignal(left);
-}
-
-void activateRightSignal(){
-    activateTurnSignal(right);
 }
 
 void setup() 
@@ -72,8 +84,8 @@ void setup()
   pinMode(LEFTLOAD, OUTPUT);
   pinMode(RIGHTLOAD, OUTPUT);
 
-  attachInterrupt(digitalPinToInterrupt(LEFT), activateLeftSignal, FALLING);
-  attachInterrupt(digitalPinToInterrupt(RIGHT), activateRightSignal, FALLING);
+  // attachInterrupt(digitalPinToInterrupt(LEFT), activateLeftSignal, FALLING);
+  // attachInterrupt(digitalPinToInterrupt(RIGHT), activateRightSignal, FALLING);
 
   // Initialize MPU6050
   while(!mpu.begin(MPU6050_SCALE_2000DPS, MPU6050_RANGE_2G))
@@ -89,25 +101,80 @@ float absolute(float x){    ///Fix for abs function not working for floats. neit
   return (x > 0? x: x*-1);
 }
 
+void activateShortBlinks(buttons dir){
+  blinks = SHORTBLINKTIMES*2;
+  isBlinking = true;
+  ledBlinking = dir;
+  shortBlinking = true;
+}
+
 void loop()
 { 
-  timer = millis();
-  Vector norm = mpu.readNormalizeGyro();
-  yaw = yaw + norm.ZAxis * timeStep;
-  delay((timeStep*1000) - (millis() - timer));
 
-  if (isBlinking && ((ledBlinking == left && yaw < CANCELATION_ANGLE) || (ledBlinking == right && yaw > -CANCELATION_ANGLE))){ //if is blinking and 
-    cancelTurnSignals();
-  }
-  // } else if(isBlinking && ((yaw > MINTURN && ledBlinking == left && yaw > yawMax ) || (yaw < -MINTURN && ledBlinking == right && yaw < yawMax))){
-  //   yawMax = yaw;
-  //   Serial.println(yawMax);
-  // } 
-  unsigned long currentMillis = millis();
+  if (digitalRead(LEFT) == LOW || digitalRead(RIGHT) ==  LOW) {
+    leftButtonState = digitalRead(LEFT);
+    rightButtonState = digitalRead(RIGHT);
+
+		if (!buttonActive) {
+			buttonActive = true;
+			buttonTimer = millis();
+		}
+		if ((millis() - buttonTimer > longPressTime) && (longPressActive == false)) {
+			longPressActive = true;
+      if(leftButtonState == LOW){
+        activateTurnSignal(left);
+        Serial.println("LEFT long");
+      }else if(rightButtonState == LOW){
+        Serial.println("RIGHT long");
+        activateTurnSignal(right);
+      }
+		}
+	} else {
+		if (buttonActive == true) {
+			if (longPressActive == true) {
+				longPressActive = false;
+			} else {
+        if(isBlinking){
+          cancelTurnSignals();
+        } else {
+          if(leftButtonState == LOW){
+          activateShortBlinks(left);
+          Serial.println("LEFT short");
+          }else if(rightButtonState == LOW){
+            Serial.println("RIGHT short");
+            activateShortBlinks(right);
+          }
+        }
+        
+			}
+			buttonActive = false;
+		}
+	}
+
+
+  // timer = millis();
+  // Vector norm = mpu.readNormalizeGyro();
+  // yaw = yaw + norm.ZAxis * timeStep;
+  // delay((timeStep*1000) - (millis() - timer));
+
+  // if (isBlinking && ((ledBlinking == left && yaw < CANCELATION_ANGLE) || (ledBlinking == right && yaw > -CANCELATION_ANGLE))){ //if is blinking and 
+  //   cancelTurnSignals();
+  // }
+  // // } else if(isBlinking && ((yaw > MINTURN && ledBlinking == left && yaw > yawMax ) || (yaw < -MINTURN && ledBlinking == right && yaw < yawMax))){
+  // //   yawMax = yaw;
+  // //   Serial.println(yawMax);
+  // // } 
+   unsigned long currentMillis = millis();
 
   if(isBlinking && currentMillis - previousMillis > interval) {
-    previousMillis = currentMillis; 
+    previousMillis = currentMillis;
     digitalWrite(ledBlinking, blinkState);
     blinkState = !blinkState;
+
+    if(shortBlinking && blinks > 0){
+      blinks--;
+    } else if (shortBlinking && blinks==0){
+      cancelTurnSignals();
+    }
   }
 }
