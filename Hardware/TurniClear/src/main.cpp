@@ -11,6 +11,7 @@ MPU6050 mpu;
 #define RIGHTLOAD             5
 
 #define CANCELATION_ANGLE     10
+#define TURN_QUALIFIER        45
 
 
 //===========Buttons routine declarations===============//
@@ -37,6 +38,7 @@ bool shortBlinking = false;
 
 int leftButtonState = 0;
 int rightButtonState = 0;
+bool isTurned = false;
 
 
 // Timers
@@ -59,13 +61,16 @@ void cancelTurnSignals()
   ledBlinking = none;
   leftButtonState = HIGH;
   rightButtonState = HIGH;
+  isTurned = false;
+  Serial.println("Canceled Turn signals");
 }
 
 
 void activateTurnSignal(buttons dir){
-
   if(!isBlinking) {
-      mpu.calibrateGyro();
+      mpu.calibrateGyro(10); //added for calibrating bf turn.
+      yaw = 0;
+      Serial.println("Calibrated MPU");
       isBlinking = true;
       ledBlinking = dir;
   } else {
@@ -84,21 +89,13 @@ void setup()
   pinMode(LEFTLOAD, OUTPUT);
   pinMode(RIGHTLOAD, OUTPUT);
 
-  // attachInterrupt(digitalPinToInterrupt(LEFT), activateLeftSignal, FALLING);
-  // attachInterrupt(digitalPinToInterrupt(RIGHT), activateRightSignal, FALLING);
-
-  // Initialize MPU6050
   while(!mpu.begin(MPU6050_SCALE_2000DPS, MPU6050_RANGE_2G))
   {
     Serial.println("Could not find a valid MPU6050 sensor, check wiring!");
     delay(500);
   }
-  mpu.calibrateGyro();
+  mpu.calibrateGyro(10);
   mpu.setThreshold(3);
-}
-
-float absolute(float x){    ///Fix for abs function not working for floats. neither abs nor fabs works.
-  return (x > 0? x: x*-1);
 }
 
 void activateShortBlinks(buttons dir){
@@ -151,19 +148,6 @@ void loop()
 		}
 	}
 
-
-  // timer = millis();
-  // Vector norm = mpu.readNormalizeGyro();
-  // yaw = yaw + norm.ZAxis * timeStep;
-  // delay((timeStep*1000) - (millis() - timer));
-
-  // if (isBlinking && ((ledBlinking == left && yaw < CANCELATION_ANGLE) || (ledBlinking == right && yaw > -CANCELATION_ANGLE))){ //if is blinking and 
-  //   cancelTurnSignals();
-  // }
-  // // } else if(isBlinking && ((yaw > MINTURN && ledBlinking == left && yaw > yawMax ) || (yaw < -MINTURN && ledBlinking == right && yaw < yawMax))){
-  // //   yawMax = yaw;
-  // //   Serial.println(yawMax);
-  // // } 
    unsigned long currentMillis = millis();
 
   if(isBlinking && currentMillis - previousMillis > interval) {
@@ -174,6 +158,19 @@ void loop()
     if(shortBlinking && blinks > 0){
       blinks--;
     } else if (shortBlinking && blinks==0){
+      cancelTurnSignals();
+    }
+  }
+
+  timer = millis();
+  Vector norm = mpu.readNormalizeGyro();
+  yaw = yaw + norm.ZAxis * timeStep;
+  delay((timeStep*1000) - (millis() - timer));
+
+  if(!shortBlinking && isBlinking){
+    if(!isTurned && (yaw > TURN_QUALIFIER || yaw < -TURN_QUALIFIER)){
+      isTurned = true;
+    } else if (isTurned && ((ledBlinking == left && yaw < CANCELATION_ANGLE) || (ledBlinking == right && yaw > -CANCELATION_ANGLE))){
       cancelTurnSignals();
     }
   }
